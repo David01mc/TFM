@@ -5,7 +5,6 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 import json
 import time
-import os
 from datetime import datetime
 from urllib.parse import urlparse
 import google.generativeai as genai
@@ -48,6 +47,59 @@ nlu.set_service_url(url_ibm)
 CONNECTION_STRING = "mongodb+srv://david01mc:1234TFM.@tfmdatabase.mongocluster.cosmos.azure.com/?tls=true&authMechanism=SCRAM-SHA-256&retrywrites=false&maxIdleTimeMS=120000"
 DATABASE_NAME = "GrupoJolly"
 
+# Configuración de Azure Cognitive Services
+AZURE_SUBSCRIPTION_KEY = "2xbRH8BEJ435TXmeu01EkDbWE3gyVLcKWucq8jRTObiu8w5d03aBJQQJ99AJACYeBjFXJ3w3AAAFACOGdy6y"
+AZURE_ENDPOINT = "https://pruebaapimaster.cognitiveservices.azure.com/"
+AZURE_ANALYZE_URL = f"{AZURE_ENDPOINT}vision/v3.2/analyze"
+
+def analizar_imagen_azure(image_url):
+    """
+    Realiza una solicitud a la API de Azure Computer Vision para analizar una imagen.
+    Devuelve una descripción y las 5 etiquetas principales de la imagen.
+    """
+    try:
+        # Parámetros para la API de Azure
+        params = {
+            "visualFeatures": "Description,Tags",  # Pedir descripción y etiquetas
+            "language": "es"  # Salida en español
+        }
+        headers = {
+            "Ocp-Apim-Subscription-Key": AZURE_SUBSCRIPTION_KEY,
+            "Content-Type": "application/json"
+        }
+        data = {
+            "url": image_url
+        }
+
+        # Realizar solicitud a Azure
+        response = requests.post(AZURE_ANALYZE_URL, headers=headers, params=params, json=data)
+        response.raise_for_status()
+        analysis = response.json()
+
+        # Obtener la descripción
+        descripcion = analysis.get("description", {}).get("captions", [{}])[0].get("text", "No disponible")
+        confianza_descripcion = analysis.get("description", {}).get("captions", [{}])[0].get("confidence", 0)
+
+        # Obtener las 5 etiquetas principales
+        tags = analysis.get("tags", [])
+        top_tags = sorted(tags, key=lambda t: t["confidence"], reverse=True)[:5]
+
+        etiquetas = [{"etiqueta": tag["name"], "confianza": tag["confidence"]} for tag in top_tags]
+
+        # Devolver resultados
+        return {
+            "descripcion": descripcion,
+            "confianza_descripcion": confianza_descripcion,
+            "etiquetas": etiquetas
+        }
+    except Exception as e:
+        print(f"Error al analizar la imagen con Azure: {e}")
+        return {
+            "descripcion": "Error",
+            "confianza_descripcion": 0,
+            "etiquetas": []
+        }
+
 def conectar_a_cosmos(connection_string, db_name, collection_name):
     try:
         client = MongoClient(connection_string)
@@ -80,7 +132,6 @@ def extraer_nombre_de_coleccion(url):
     domain = urlparse(url).netloc.replace('www.', '').split('.')[0]
     return domain
 
-
 def analizar_sentimiento(comentario):
     try:
         chat_session = model.start_chat(history=[])
@@ -100,7 +151,6 @@ def analizar_sentimiento(comentario):
         print(f"Error al analizar el comentario: {e}")
         return {"sentimiento": "Indeterminado", "confianza": 0}
 
-
 def analizar_con_ibm_nlu(texto):
     try:
         response = nlu.analyze(
@@ -118,132 +168,58 @@ def analizar_con_ibm_nlu(texto):
         print(f"Error al analizar el texto con IBM NLU: {e}")
         return {}
 
-
 def extraer_datos_selenium(url_noticia):
-    """
-    Función para abrir una noticia en Selenium, hacer scroll, aceptar cookies y extraer datos como JSON-LD y comentarios.
-    
-    Parámetros:
-    url_noticia (str): URL de la noticia que se va a procesar.
-
-    Retorna:
-    dict: Diccionario con los datos extraídos de la noticia.
-    """
-    # Usamos las rutas establecidas en el contenedor
-    CHROME_DRIVER_PATH = "/usr/bin/chromedriver"
-
-    # Configurar el servicio de ChromeDriver
+    CHROME_DRIVER_PATH = "C:/Users/Usuario/Desktop/TFM/chromedriver-win64-1/chromedriver.exe"
     service = Service(CHROME_DRIVER_PATH)
-
-    # Opciones para ejecutar Chrome en modo headless
     chrome_options = webdriver.ChromeOptions()
-    chrome_options.add_argument("--headless")  # Ejecutar en modo sin interfaz gráfica
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.binary_location = "/usr/bin/chromium"  # Ruta para el navegador
 
-    # Iniciar el navegador
     driver = webdriver.Chrome(service=service, options=chrome_options)
-
-    # Abrir la página
     driver.get(url_noticia)
-
-    # Esperar unos segundos para que el botón de "Aceptar y continuar" se cargue
     time.sleep(0.7)
 
-    # Intentar encontrar y hacer clic en el botón de "Aceptar y continuar"
     try:
         aceptar_boton = driver.find_element(By.CSS_SELECTOR, 'a.mrf-button[data-mrf-role="userAgreeToAll"]')
         aceptar_boton.click()
         print("Botón 'Aceptar y continuar' clicado.")
-    except:
-        print("No se encontró el botón 'Aceptar y continuar'.")
+    except Exception as e:
+        print("No se encontró el botón 'Aceptar y continuar':", e)
 
-    # Esperar un segundo para que la página cargue completamente después de aceptar
     time.sleep(0.7)
-
-    # Hacer scroll tres veces
     for i in range(3):
         driver.execute_script("window.scrollBy(0, document.body.scrollHeight);")
-        time.sleep(0.5)  # Esperar un segundo entre cada scroll para que el contenido se cargue
+        time.sleep(0.5)
 
-    # Obtener el código fuente de la página después de cargar y hacer scroll
     page_source = driver.page_source
-
-    # Analizar el contenido HTML con BeautifulSoup
     soup = BeautifulSoup(page_source, 'html.parser')
-
-    # Diccionario para almacenar los datos de la noticia
     datos_noticia = {}
 
-    # Buscar el script con type="application/ld+json"
     ld_json_script = soup.find('script', {'type': 'application/ld+json'})
-
     if ld_json_script:
-        # Parsear el contenido JSON
         ld_json_content = json.loads(ld_json_script.string)
-        
-        # Acceder a la información dentro del JSON
-        datos_noticia['headline'] = ld_json_content.get('headline')
-        datos_noticia['url'] = ld_json_content.get('url')
-        
-        # Manejar si 'image' es un string o un objeto
-        image = ld_json_content.get('image')
-        if isinstance(image, str):
-            datos_noticia['image_url'] = image
-            datos_noticia['image_name'] = ''
-        elif isinstance(image, dict):
-            datos_noticia['image_url'] = image.get('url')
-            datos_noticia['image_name'] = image.get('name')
+        datos_noticia = {
+            'headline': ld_json_content.get('headline'),
+            'url': ld_json_content.get('url'),
+            'image_url': ld_json_content.get('image', {}).get('url') if isinstance(ld_json_content.get('image'), dict) else ld_json_content.get('image'),
+            'author': ld_json_content.get('author', [{}])[0].get('name'),
+            'date_published': ld_json_content.get('datePublished'),
+            'date_modified': ld_json_content.get('dateModified'),
+            'publisher': ld_json_content.get('publisher', {}).get('name'),
+            'article_section': ld_json_content.get('articleSection', []),
+            'description': ld_json_content.get('description'),
+            'article_body': ld_json_content.get('articleBody'),
+            'keywords': ld_json_content.get('keywords', []),
+        }
+        datos_noticia['analisis_nlu'] = analizar_con_ibm_nlu(datos_noticia['article_body'])
 
-        datos_noticia['author'] = ld_json_content.get('author', [{}])[0].get('name')
-        datos_noticia['date_published'] = ld_json_content.get('datePublished')
-        datos_noticia['date_modified'] = ld_json_content.get('dateModified')
-        datos_noticia['publisher'] = ld_json_content.get('publisher', {}).get('name')
-        datos_noticia['article_section'] = ld_json_content.get('articleSection', [])
-        datos_noticia['description'] = ld_json_content.get('description')
-        datos_noticia['article_body'] = ld_json_content.get('articleBody')
-        datos_noticia['keywords'] = ld_json_content.get('keywords', [])
-        datos_noticia['content_location'] = ld_json_content.get('contentLocation', [{}])[0].get('name')
+        # Si hay una imagen asociada, analiza la imagen con Azure
+        if datos_noticia.get('image_url'):
+            datos_noticia['image_analysis'] = analizar_imagen_azure(ld_json_content.get('image', {}).get('url') if isinstance(ld_json_content.get('image'), dict) else ld_json_content.get('image'))
 
-        # Análisis del artículo con IBM Watson NLU
-        analisis_nlu = analizar_con_ibm_nlu(datos_noticia['article_body'])
-        datos_noticia['analisis_nlu'] = analisis_nlu
-
-    else:
-        print("No se encontró el script con el tipo 'application/ld+json'.")
-
-    # Intentar obtener los comentarios y agregar la información
-    try:
-        comentarios = driver.find_elements(By.CLASS_NAME, 'comment')
-        lista_comentarios = []
-        if comentarios:
-            for comentario in comentarios:
-                comentario_data = {}
-                # Nombre del usuario
-                comentario_data['nombre'] = comentario.find_element(By.CLASS_NAME, 'comment-info-name').text
-                # Tiempo de publicación
-                comentario_data['tiempo'] = comentario.find_element(By.CLASS_NAME, 'comment-info-date').text
-                # Texto del comentario
-                comentario_data['texto_comentario'] = comentario.find_element(By.CLASS_NAME, 'comment-info-text').text
-                
-                # Análisis de sentimiento usando Gemini
-                analisis_sentimiento = analizar_sentimiento(comentario_data['texto_comentario'])
-                comentario_data.update(analisis_sentimiento)
-                
-                # Agregar comentario al listado
-                lista_comentarios.append(comentario_data)
-            datos_noticia['comentarios'] = lista_comentarios
-        else:
-            datos_noticia['comentarios'] = []
-    except Exception as e:
-        print(f"Error al intentar obtener los comentarios: {e}")
-    
-    # Cerrar el navegador
     driver.quit()
-
     return datos_noticia
-
 
 # Ajustar `explorar_pagina` para limitar el número de noticias procesadas
 
@@ -267,7 +243,7 @@ def explorar_pagina(url):
         secciones = soup.find_all(['section', 'div'], class_=['module', 'mosaic', 'mosaic-wrapper', 'module recirculation'])
 
         titulo_seccion_actual = "OTRO"
-        for i, seccion in enumerate(secciones[:3], 1):  # Procesa solo las 3 primeras noticias
+        for i, seccion in enumerate(secciones[:2], 1):  # Procesa solo las 3 primeras noticias
             span_titulo = seccion.find('span', class_='title-text-title')
             if span_titulo:
                 titulo_seccion_actual = span_titulo.text.strip()
@@ -301,7 +277,6 @@ def explorar_pagina(url):
 
     end_time = time.time()
     print(f"Tiempo total de extracción: {end_time - start_time:.2f} segundos")
-
 
 
 if __name__ == "__main__":

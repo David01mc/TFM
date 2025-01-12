@@ -7,7 +7,8 @@ required_packages = [
     'beautifulsoup4',
     'selenium',
     'google-generativeai',
-    'ibm-watson'
+    'ibm-watson',
+    'pymongo'
 ]
 
 def install(package):
