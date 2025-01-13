@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  cadiz:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: cadiz
+    command: python Cadiz_WS.py "https://www.diariodecadiz.es/"
+  
+  sevilla:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: sevilla
+    command: python Cadiz_WS.py "https://www.diariodesevilla.es/"
+
+  huelva:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: huelva
+    command: python Cadiz_WS.py "https://www.huelvainformacion.es/"
+
+  cordoba:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: cordoba
+    command: python Cadiz_WS.py "https://www.eldiadecordoba.es/"
+
+  malaga:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: malaga
+    command: python Cadiz_WS.py "https://www.malagahoy.es/"
+
+  granada:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: granada
+    command: python Cadiz_WS.py "https://www.granadahoy.com/"
+
+  almeria:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: almeria
+    command: python Cadiz_WS.py "https://www.diariodealmeria.es/"
+
+  jaen:
+    image: david01mc/grupo_jolly_web_scraping:latest
+    container_name: jaen
+    command: python Cadiz_WS.py "https://www.jaenhoy.es/"
